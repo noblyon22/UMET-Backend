@@ -1,0 +1,14 @@
+services:
+  expense-tracker:
+    build: .
+    container_name: expense-tracker
+    restart: unless-stopped
+    ports: ["9700:8000"]
+    env_file: .env
+    networks:
+      - tek_juice_net
+
+networks:
+  tek_juice_net:
+    external: true
+    name: docker_tek_juice_net

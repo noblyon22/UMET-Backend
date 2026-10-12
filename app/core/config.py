@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "Nob Expense Tracker"
     DEBUG: bool = False
+    PUBLIC_URL: str = "https://ultimatemove.co.uk"
 
     # Database
     DATABASE_URL: str
@@ -15,6 +16,16 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    # Tek Juice Data Engine S2S connector
+    TEKJUICE_WEBSITE_ID: str = ""
+    TEKJUICE_CONNECTOR_KEY: str = ""
+    TEKJUICE_DATA_ENGINE_URL: str = ""
+    TEKJUICE_RECEIVER_SECRET: str = ""
+    TEKJUICE_PUBLICATION_ENDPOINT_URL: str = ""
+    # Pages are client-rendered: the Data Engine proves published content via
+    # the public content API the pages render. Defaults to PUBLIC_URL/api/content/{slug}.
+    TEKJUICE_PUBLIC_CONTENT_URL: str = ""
 
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:5174"]

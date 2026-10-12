@@ -28,3 +28,7 @@ htmlcov/
 
 # Alembic compiled
 *.pyc
+
+# Local env variants (contain secrets)
+.env*
+!.env.example
