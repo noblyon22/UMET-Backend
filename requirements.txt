@@ -8,9 +8,9 @@ pydantic-settings>=2.2.0
 python-jose[cryptography]>=3.3.0
 bcrypt>=4.0.0
 python-multipart>=0.0.9
-# Built from tek-juice/Tek-Juice-Data-Engine-Connector tag v0.5.0 until it is on PyPI;
-# then replace with: tekjuice-connector>=0.5.0
-./vendor/tekjuice_connector-0.5.0-py3-none-any.whl
+# Built from tek-juice/Tek-Juice-Data-Engine-Connector tag v0.5.1 until it is on PyPI;
+# then replace with: tekjuice-connector>=0.5.1
+./vendor/tekjuice_connector-0.5.1-py3-none-any.whl
 
 # Testing
 pytest>=8.1.0
