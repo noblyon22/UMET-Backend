@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.models.content import PublishedContent
 from app.models.tekjuice_publication import TekJuicePublication
+from app.models.tekjuice_site_override import TekJuiceSiteOverride
 from tekjuice_connector.publication import (
     ContentStoreError,
     DuplicateSlugError,
@@ -166,6 +167,34 @@ class UMETContentStore:
             )
         return [PublishedPage(slug=slug, updated_at=updated) for slug, updated in rows]
 
+    # ── Site overrides (connector site.changes) ──────────────────────────
+
+    def get_site_override(self, path: str) -> Optional[dict]:
+        with self._session_factory() as db:
+            row = db.get(TekJuiceSiteOverride, path)
+            return json.loads(row.data) if row else None
+
+    def set_site_override(self, path: str, override: dict) -> None:
+        with self._session_factory() as db:
+            row = db.get(TekJuiceSiteOverride, path)
+            if row is None:
+                db.add(TekJuiceSiteOverride(path=path, data=json.dumps(override)))
+            else:
+                row.data = json.dumps(override)
+                row.updated_at = datetime.now(timezone.utc)
+            db.commit()
+
+    def delete_site_override(self, path: str) -> None:
+        with self._session_factory() as db:
+            row = db.get(TekJuiceSiteOverride, path)
+            if row is not None:
+                db.delete(row)
+                db.commit()
+
+    def list_site_overrides(self) -> dict:
+        with self._session_factory() as db:
+            return {r.path: json.loads(r.data) for r in db.query(TekJuiceSiteOverride).all()}
+
     # ── Writes ───────────────────────────────────────────────────────────
 
     @staticmethod
@@ -296,6 +325,8 @@ def ensure_content_columns(engine) -> None:
     if "discovery" not in columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE published_content ADD COLUMN discovery TEXT"))
+    # Approved site changes (overrides / redirects) live in their own table.
+    TekJuiceSiteOverride.__table__.create(bind=engine, checkfirst=True)
 
 
 class _ShellCache:

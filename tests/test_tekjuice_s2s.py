@@ -195,7 +195,7 @@ def test_verify_is_a_dry_run(client):
     assert body["persisted"] is False
     assert body["capabilities"] == ["ai.entity", "ai.feed", "ai.indexnow", "ai.llms_txt", "ai.markdown", "ai.robots", "publish.create",
                                     "publish.discovery", "publish.update", "publish.verify",
-                                    "seo.prerender", "seo.sitemap"]
+                                    "seo.prerender", "seo.sitemap", "site.changes"]
     assert body["would_publish_url"] == "https://ultimatemove.co.uk/tekjuice-verification-abc"
     assert _page("tekjuice-verification-abc") is None
     assert _ledger() == []
@@ -356,3 +356,26 @@ def test_verified_business_facts_are_served(client, shell):
     types = [json.loads(m)["@type"] for m in re.findall(
         r'<script type="application/ld\+json">(.*?)</script>', html, re.S)]
     assert "Organization" in types and "Product" in types   # the article mentions UMET
+
+
+def test_site_changes_override_a_umet_page_and_redirect(client, shell):
+    import json as _json
+    import app.main as main
+    assert "site.changes" in main.tekjuice_receiver.capabilities
+
+    def send(change, key):
+        return client.post(S2S_PUBLISH_PATH, headers=AUTH, json={
+            "contract_version": "1.0", "action": "site_change", "website_id": WEBSITE_ID,
+            "idempotency_key": key, "change": change})
+    ok = send({"type": "page_meta", "path": "/resources", "canonical": "/resources"}, "site-change-1")
+    assert ok.status_code == 200, ok.text
+    page = client.get(f"{SEO}/page/resources")
+    assert page.status_code == 200 and '<link rel="canonical" href="https://ultimatemove.co.uk/resources" />' in page.text
+    _post(client, _payload())
+    moved = send({"type": "redirect", "path": "/moving-cost-guide", "target": "/features"}, "site-change-2")
+    assert moved.status_code == 200
+    redirect = client.get(f"{SEO}/page/moving-cost-guide", follow_redirects=False)
+    assert redirect.status_code == 301 and redirect.headers["location"] == "https://ultimatemove.co.uk/features"
+    undo = send({"type": "remove", "path": "/moving-cost-guide"}, "site-change-3")
+    assert undo.json()["previous"]["redirect"]["target"] == "/features"
+    assert client.get(f"{SEO}/page/moving-cost-guide", follow_redirects=False).status_code == 200
