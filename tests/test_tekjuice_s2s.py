@@ -193,7 +193,7 @@ def test_verify_is_a_dry_run(client):
     assert body["status"] == "verified"
     assert body["challenge"] == "c-123"
     assert body["persisted"] is False
-    assert body["capabilities"] == ["ai.feed", "ai.llms_txt", "ai.markdown", "ai.robots", "publish.create",
+    assert body["capabilities"] == ["ai.feed", "ai.indexnow", "ai.llms_txt", "ai.markdown", "ai.robots", "publish.create",
                                     "publish.discovery", "publish.update", "publish.verify",
                                     "seo.prerender", "seo.sitemap"]
     assert body["would_publish_url"] == "https://ultimatemove.co.uk/tekjuice-verification-abc"
@@ -333,3 +333,11 @@ def test_content_column_is_added_to_existing_databases():
     ensure_content_columns(engine)
     ensure_content_columns(engine)  # idempotent
     assert "discovery" in {c["name"] for c in inspect(engine).get_columns("published_content")}
+
+
+def test_indexnow_key_file_is_served(client):
+    from tekjuice_connector.publication import indexnow_key
+    key = indexnow_key(SECRET)
+    response = client.get(f"{SEO}/indexnow/{key}")
+    assert response.status_code == 200 and response.text == key
+    assert client.get(f"{SEO}/indexnow/{'0' * 32}").status_code == 404
