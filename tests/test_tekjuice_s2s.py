@@ -346,7 +346,8 @@ def test_indexnow_key_file_is_served(client):
 def test_verified_business_facts_are_served(client, shell):
     entity = {"name": "UMET", "website": "https://ultimatemove.co.uk/", "product_type": "Expense Tracker",
               "products": ["UMET"]}
-    assert _post(client, _payload(discovery={**DISCOVERY, "entity": entity})).status_code == 200
+    assert _post(client, _payload(discovery={**DISCOVERY, "entity": entity},
+                                  body="<p>Plan every cost with UMET.</p>")).status_code == 200
     import json
     import re
     response = client.get(f"{SEO}/entity.json")
@@ -354,4 +355,4 @@ def test_verified_business_facts_are_served(client, shell):
     html = client.get(f"{SEO}/page/moving-cost-guide").text
     types = [json.loads(m)["@type"] for m in re.findall(
         r'<script type="application/ld\+json">(.*?)</script>', html, re.S)]
-    assert "Organization" in types and "Product" in types
+    assert "Organization" in types and "Product" in types   # the article mentions UMET
