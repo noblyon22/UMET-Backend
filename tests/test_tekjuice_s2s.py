@@ -191,7 +191,7 @@ def test_verify_is_a_dry_run(client):
     assert body["status"] == "verified"
     assert body["challenge"] == "c-123"
     assert body["persisted"] is False
-    assert body["capabilities"] == ["publish.create", "publish.update", "publish.verify"]
+    assert body["capabilities"] == ["publish.create", "publish.update", "publish.verify", "seo.prerender", "seo.sitemap"]
     assert body["would_publish_url"] == "https://ultimatemove.co.uk/tekjuice-verification-abc"
     assert _page("tekjuice-verification-abc") is None
     assert _ledger() == []
@@ -225,3 +225,55 @@ def test_public_content_url_points_at_the_anonymous_content_api(client):
     response = client.get(path)  # anonymous: no credentials
     assert response.status_code == 200
     assert response.json()["title"] == "Moving Cost Guide"
+
+
+# ── Search discoverability (seo.prerender / seo.sitemap) ────────────────────
+
+SHELL = ('<!doctype html><html><head><title>UMET — Ultimate Move Expense Tracker</title>'
+         '<meta name="description" content="Shell" /><script type="module" src="/assets/app.js"></script>'
+         '</head><body><div id="root"></div></body></html>')
+SEO = "/api/integrations/tekjuice/seo"
+
+
+@pytest.fixture
+def shell(monkeypatch):
+    import app.main as main
+    monkeypatch.setattr(main.tekjuice_seo, "_shell", lambda: SHELL)
+
+
+def test_receiver_advertises_discoverability():
+    import app.main as main
+    assert {"seo.prerender", "seo.sitemap"} <= set(main.tekjuice_receiver.capabilities)
+
+
+def test_published_article_is_served_prerendered(client, shell):
+    assert _post(client, _payload()).status_code == 200
+    page = client.get(f"{SEO}/page/moving-cost-guide")
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    html = page.text
+    title = _page("moving-cost-guide").title
+    assert f"<title>{title}</title>" in html
+    assert "UMET — Ultimate Move Expense Tracker" not in html.split("</head>")[0].split("<title>")[1]
+    assert '<link rel="canonical" href="https://ultimatemove.co.uk/moving-cost-guide" />' in html
+    assert '<div id="root"><article><h1>' in html
+    assert '<script type="module" src="/assets/app.js"></script>' in html
+
+
+def test_umet_pages_and_unknown_paths_are_not_prerendered(client, shell):
+    db = SessionLocal()
+    db.add(PublishedContent(page_slug="home", title="UMET home", body_content="Native"))
+    db.commit()
+    db.close()
+    assert client.get(f"{SEO}/page/home").status_code == 404       # UMET's own CMS page
+    assert client.get(f"{SEO}/page/dashboard").status_code == 404  # app route
+
+
+def test_sitemap_lists_public_pages_and_articles(client, shell):
+    _post(client, _payload())
+    sitemap = client.get(f"{SEO}/sitemap.xml")
+    assert sitemap.status_code == 200
+    assert "<loc>https://ultimatemove.co.uk/</loc>" in sitemap.text
+    assert "<loc>https://ultimatemove.co.uk/features</loc>" in sitemap.text
+    assert "<loc>https://ultimatemove.co.uk/moving-cost-guide</loc><lastmod>" in sitemap.text
+    assert "/dashboard" not in sitemap.text

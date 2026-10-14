@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
+import urllib.request
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
@@ -29,12 +31,20 @@ from tekjuice_connector.publication import (
     DuplicateSlugError,
     PublicationContent,
     PublicationReceiver,
+    PublishedPage,
+    SeoPages,
     StoredContent,
 )
 
 logger = logging.getLogger(__name__)
 
 S2S_PUBLISH_PATH = "/api/integrations/tekjuice/s2s/publish"
+# Search discoverability: pre-rendered articles and sitemap (nginx routes
+# article URLs and /sitemap.xml here; see deploy/nginx-umet-seo.conf).
+SEO_PREFIX = "/api/integrations/tekjuice/seo"
+# UMET's own public pages, listed in the sitemap with the articles.
+SEO_STATIC_PATHS = ("/", "/features", "/pricing", "/about", "/resources")
+SHELL_CACHE_SECONDS = 300
 
 
 class UMETContentStore:
@@ -109,6 +119,40 @@ class UMETContentStore:
             if content is None:
                 return None
             return self._stored(content, ledger)
+
+    # ── Discoverability (seo.prerender / seo.sitemap) ────────────────────
+
+    def get_content(self, slug: str) -> Optional[PublicationContent]:
+        """A Tek Juice-published article (UMET's own CMS pages are not)."""
+        with self._session_factory() as db:
+            content = (
+                db.query(PublishedContent)
+                .filter(PublishedContent.page_slug == slug)
+                .first()
+            )
+            if content is None or self._latest_ledger(db, content.id) is None:
+                return None
+            return PublicationContent(
+                title=content.title or content.hero_heading or slug,
+                body=content.body_content or "",
+                slug=content.page_slug,
+                excerpt=content.hero_subheading,
+                meta_description=content.meta_description,
+                meta_keywords=[k.strip() for k in (content.meta_keywords or "").split(",") if k.strip()],
+            )
+
+    def list_published(self):
+        """Every Tek Juice-published article, for the sitemap."""
+        with self._session_factory() as db:
+            rows = (
+                db.query(PublishedContent.page_slug, PublishedContent.updated_at)
+                .join(TekJuicePublication, TekJuicePublication.resource_id == PublishedContent.id)
+                .filter(TekJuicePublication.status == "published")
+                .distinct()
+                .order_by(PublishedContent.page_slug)
+                .all()
+            )
+        return [PublishedPage(slug=slug, updated_at=updated) for slug, updated in rows]
 
     # ── Writes ───────────────────────────────────────────────────────────
 
@@ -224,19 +268,56 @@ class UMETContentStore:
         return stored
 
 
-def build_receiver(settings, session_factory) -> Optional[PublicationReceiver]:
-    """Return the receiver, or None when S2S is not configured."""
+class _ShellCache:
+    """The live site's index.html (so the app's assets always match the
+    deployed frontend), cached for a few minutes."""
+
+    def __init__(self, url: str, ttl: int = SHELL_CACHE_SECONDS) -> None:
+        self._url, self._ttl = url, ttl
+        self._html: Optional[str] = None
+        self._fetched = 0.0
+        self._lock = threading.Lock()
+
+    def __call__(self) -> str:
+        with self._lock:
+            if self._html is None or time.monotonic() - self._fetched > self._ttl:
+                request = urllib.request.Request(self._url, headers={"User-Agent": "UMET-SEO/1.0"})
+                with urllib.request.urlopen(request, timeout=10) as response:  # nosec: own site
+                    self._html = response.read().decode("utf-8")
+                self._fetched = time.monotonic()
+            return self._html
+
+
+def build_store(settings, session_factory) -> Optional[UMETContentStore]:
     if not (settings.TEKJUICE_WEBSITE_ID and settings.TEKJUICE_RECEIVER_SECRET):
         return None
-    store = UMETContentStore(
+    return UMETContentStore(
         session_factory,
         public_base_url=settings.PUBLIC_URL,
         website_id=settings.TEKJUICE_WEBSITE_ID,
     )
+
+
+def build_seo(settings, store: UMETContentStore, shell_html: Optional[Callable[[], str]] = None) -> SeoPages:
+    return SeoPages(
+        store,
+        site_url=settings.PUBLIC_URL,
+        shell_html=shell_html or _ShellCache(settings.PUBLIC_URL.rstrip("/") + "/index.html"),
+        static_paths=SEO_STATIC_PATHS,
+        site_name="UMET",
+    )
+
+
+def build_receiver(settings, session_factory, seo: Optional[SeoPages] = None) -> Optional[PublicationReceiver]:
+    """Return the receiver, or None when S2S is not configured."""
+    store = build_store(settings, session_factory)
+    if store is None:
+        return None
     return PublicationReceiver(
         store=store,
         website_id=settings.TEKJUICE_WEBSITE_ID,
         receiver_secret=settings.TEKJUICE_RECEIVER_SECRET,
+        seo=seo if seo is not None else build_seo(settings, store),
     )
 
 
@@ -244,6 +325,12 @@ def create_router(receiver: PublicationReceiver):
     from tekjuice_connector.adapters.fastapi import create_router as connector_router
 
     return connector_router(receiver, path=S2S_PUBLISH_PATH)
+
+
+def create_seo_router(seo: SeoPages):
+    from tekjuice_connector.adapters.fastapi import create_seo_router as connector_seo_router
+
+    return connector_seo_router(seo, prefix=SEO_PREFIX)
 
 
 def public_content_url(settings) -> str:

@@ -32,9 +32,14 @@ app.include_router(content.router)
 
 # Tek Juice S2S publication receiver (tekjuice-connector) — the only
 # publication path (the legacy M2M route was retired 2026-10-12).
-tekjuice_receiver = tekjuice_s2s.build_receiver(settings, SessionLocal)
+# Published articles are also served pre-rendered, with a sitemap, so search
+# engines can read them (UMET pages are otherwise rendered in the browser).
+tekjuice_store = tekjuice_s2s.build_store(settings, SessionLocal)
+tekjuice_seo = tekjuice_s2s.build_seo(settings, tekjuice_store) if tekjuice_store else None
+tekjuice_receiver = tekjuice_s2s.build_receiver(settings, SessionLocal, seo=tekjuice_seo)
 if tekjuice_receiver is not None:
     app.include_router(tekjuice_s2s.create_router(tekjuice_receiver))
+    app.include_router(tekjuice_s2s.create_seo_router(tekjuice_seo))
 
 
 DEFAULT_PAYMENT_METHODS = [
