@@ -35,7 +35,7 @@ def client():
 
 
 def _payload(*, action="create", slug="moving-cost-guide", execution_id="exec-1",
-             title="Moving Cost Guide", body="<p>Plan every cost.</p>"):
+             title="Moving Cost Guide", body="<p>Plan every cost.</p>", discovery=None):
     content = {
         "title": title,
         "body": body,
@@ -47,6 +47,8 @@ def _payload(*, action="create", slug="moving-cost-guide", execution_id="exec-1"
     canonical = "\n".join([title, body, slug, content["excerpt"],
                            content["meta_description"], ",".join(content["meta_keywords"])])
     digest = hashlib.sha256(canonical.encode()).hexdigest()
+    if discovery:
+        content["discovery"] = discovery  # not part of the content hash
     return {
         "contract_version": "1.0",
         "execution_id": execution_id,
@@ -191,7 +193,9 @@ def test_verify_is_a_dry_run(client):
     assert body["status"] == "verified"
     assert body["challenge"] == "c-123"
     assert body["persisted"] is False
-    assert body["capabilities"] == ["publish.create", "publish.update", "publish.verify", "seo.prerender", "seo.sitemap"]
+    assert body["capabilities"] == ["ai.feed", "ai.llms_txt", "ai.markdown", "ai.robots", "publish.create",
+                                    "publish.discovery", "publish.update", "publish.verify",
+                                    "seo.prerender", "seo.sitemap"]
     assert body["would_publish_url"] == "https://ultimatemove.co.uk/tekjuice-verification-abc"
     assert _page("tekjuice-verification-abc") is None
     assert _ledger() == []
@@ -277,3 +281,55 @@ def test_sitemap_lists_public_pages_and_articles(client, shell):
     assert "<loc>https://ultimatemove.co.uk/features</loc>" in sitemap.text
     assert "<loc>https://ultimatemove.co.uk/moving-cost-guide</loc><lastmod>" in sitemap.text
     assert "/dashboard" not in sitemap.text
+
+
+# ── AI answer engines (publish.discovery, ai.*) ─────────────────────────────
+
+DISCOVERY = {
+    "summary": "Plan every moving cost before the day.",
+    "key_takeaways": ["List fixed costs first"],
+    "direct_answer": "Write down every cost and track it as you spend.",
+    "faq": [{"question": "How do I track costs?", "answer": "Log each expense in UMET."}],
+    "entities": ["UMET"],
+}
+
+
+def test_discovery_is_stored_and_rendered_on_the_canonical_url(client, shell):
+    import json
+    import re
+    assert _post(client, _payload(discovery=DISCOVERY)).status_code == 200
+    assert json.loads(_page("moving-cost-guide").discovery)["direct_answer"] == DISCOVERY["direct_answer"]
+    html = client.get(f"{SEO}/page/moving-cost-guide").text
+    data = {d["@type"]: d for d in (json.loads(m) for m in re.findall(
+        r'<script type="application/ld\+json">(.*?)</script>', html, re.S))}
+    assert data["Article"]["url"] == "https://ultimatemove.co.uk/moving-cost-guide"
+    assert data["Article"]["publisher"]["name"] == "UMET"
+    assert data["FAQPage"]["mainEntity"][0]["name"] == "How do I track costs?"
+    assert '<p id="tj-answer">Write down every cost' in html
+
+
+def test_ai_outputs_name_the_canonical_url(client, shell):
+    _post(client, _payload(discovery=DISCOVERY))
+    url = "https://ultimatemove.co.uk/moving-cost-guide"
+    md = client.get(f"{SEO}/markdown/moving-cost-guide")
+    assert md.status_code == 200 and f"canonical: {url}" in md.text
+    assert md.headers["link"] == f'<{url}>; rel="canonical"'
+    assert client.get(f"{SEO}/markdown/dashboard").status_code == 404
+    llms = client.get(f"{SEO}/llms.txt").text
+    assert llms.startswith("# UMET\n\n> UMET is an expense tracker")
+    assert f"({url})" in llms
+    assert url in client.get(f"{SEO}/llms-full.txt").text
+    assert client.get(f"{SEO}/feed.json").json()["items"][0]["url"] == url
+    robots = client.get(f"{SEO}/robots.txt").text
+    assert "User-agent: GPTBot\nAllow: /" in robots and "Disallow: /dashboard$" in robots
+    assert "Sitemap: https://ultimatemove.co.uk/sitemap.xml" in robots
+
+
+def test_content_column_is_added_to_existing_databases():
+    from sqlalchemy import inspect, text
+    from app.integrations.tekjuice_s2s import ensure_content_columns
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE published_content DROP COLUMN discovery"))
+    ensure_content_columns(engine)
+    ensure_content_columns(engine)  # idempotent
+    assert "discovery" in {c["name"] for c in inspect(engine).get_columns("published_content")}

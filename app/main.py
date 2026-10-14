@@ -86,3 +86,5 @@ app.include_router(engine_router.router)
 
 # Auto-create published_content table if it doesn't exist
 Base.metadata.create_all(bind=db_engine, tables=[PublishedContent.__table__])
+# Columns added after the table was first created (additive, nullable).
+tekjuice_s2s.ensure_content_columns(db_engine)

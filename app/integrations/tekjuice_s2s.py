@@ -14,6 +14,7 @@ recognised by its idempotency key and replayed instead of written twice.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -21,6 +22,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -44,6 +46,15 @@ S2S_PUBLISH_PATH = "/api/integrations/tekjuice/s2s/publish"
 SEO_PREFIX = "/api/integrations/tekjuice/seo"
 # UMET's own public pages, listed in the sitemap with the articles.
 SEO_STATIC_PATHS = ("/", "/features", "/pricing", "/about", "/resources")
+# App areas crawlers should not visit (robots.txt). "$" ends the match, so
+# an article slug such as /budgets-for-students stays crawlable.
+SEO_PRIVATE_PATHS = (
+    "/api/", "/dashboard$", "/expenses$", "/expenses/", "/income$", "/budgets$",
+    "/categories$", "/analytics$", "/profile$", "/login$", "/register$", "/forgot-password$",
+)
+SITE_DESCRIPTION = (
+    "UMET is an expense tracker: log spending, set budgets and see where your money goes."
+)
 SHELL_CACHE_SECONDS = 300
 
 
@@ -139,6 +150,7 @@ class UMETContentStore:
                 excerpt=content.hero_subheading,
                 meta_description=content.meta_description,
                 meta_keywords=[k.strip() for k in (content.meta_keywords or "").split(",") if k.strip()],
+                discovery=_load_discovery(content.discovery),
             )
 
     def list_published(self):
@@ -166,6 +178,7 @@ class UMETContentStore:
         target.meta_description = content.meta_description
         target.meta_keywords = ", ".join(content.meta_keywords)
         target.source_document_id = execution_id
+        target.discovery = json.dumps(content.discovery, ensure_ascii=False) if content.discovery else None
         target.updated_at = now
 
     def _record_ledger(
@@ -268,6 +281,23 @@ class UMETContentStore:
         return stored
 
 
+def _load_discovery(value: Optional[str]) -> Optional[dict]:
+    try:
+        data = json.loads(value) if value else None
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def ensure_content_columns(engine) -> None:
+    """Add ``published_content.discovery`` to databases created before it
+    existed (additive, nullable; no data is changed)."""
+    columns = {c["name"] for c in inspect(engine).get_columns("published_content")}
+    if "discovery" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE published_content ADD COLUMN discovery TEXT"))
+
+
 class _ShellCache:
     """The live site's index.html (so the app's assets always match the
     deployed frontend), cached for a few minutes."""
@@ -305,6 +335,8 @@ def build_seo(settings, store: UMETContentStore, shell_html: Optional[Callable[[
         shell_html=shell_html or _ShellCache(settings.PUBLIC_URL.rstrip("/") + "/index.html"),
         static_paths=SEO_STATIC_PATHS,
         site_name="UMET",
+        site_description=SITE_DESCRIPTION,
+        private_paths=SEO_PRIVATE_PATHS,
     )
 
 

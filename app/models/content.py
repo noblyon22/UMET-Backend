@@ -16,6 +16,8 @@ class PublishedContent(Base):
     meta_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     meta_keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_document_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # GEO/AEO material from Tek Juice (summary, direct answer, FAQ, ...), JSON text.
+    discovery: Mapped[str | None] = mapped_column(Text, nullable=True)
     published_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
