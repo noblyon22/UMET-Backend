@@ -193,7 +193,7 @@ def test_verify_is_a_dry_run(client):
     assert body["status"] == "verified"
     assert body["challenge"] == "c-123"
     assert body["persisted"] is False
-    assert body["capabilities"] == ["ai.feed", "ai.indexnow", "ai.llms_txt", "ai.markdown", "ai.robots", "publish.create",
+    assert body["capabilities"] == ["ai.entity", "ai.feed", "ai.indexnow", "ai.llms_txt", "ai.markdown", "ai.robots", "publish.create",
                                     "publish.discovery", "publish.update", "publish.verify",
                                     "seo.prerender", "seo.sitemap"]
     assert body["would_publish_url"] == "https://ultimatemove.co.uk/tekjuice-verification-abc"
@@ -341,3 +341,17 @@ def test_indexnow_key_file_is_served(client):
     response = client.get(f"{SEO}/indexnow/{key}")
     assert response.status_code == 200 and response.text == key
     assert client.get(f"{SEO}/indexnow/{'0' * 32}").status_code == 404
+
+
+def test_verified_business_facts_are_served(client, shell):
+    entity = {"name": "UMET", "website": "https://ultimatemove.co.uk/", "product_type": "Expense Tracker",
+              "products": ["UMET"]}
+    assert _post(client, _payload(discovery={**DISCOVERY, "entity": entity})).status_code == 200
+    import json
+    import re
+    response = client.get(f"{SEO}/entity.json")
+    assert response.status_code == 200 and response.json()["facts"]["name"] == "UMET"
+    html = client.get(f"{SEO}/page/moving-cost-guide").text
+    types = [json.loads(m)["@type"] for m in re.findall(
+        r'<script type="application/ld\+json">(.*?)</script>', html, re.S)]
+    assert "Organization" in types and "Product" in types
