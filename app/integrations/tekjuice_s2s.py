@@ -47,12 +47,20 @@ S2S_PUBLISH_PATH = "/api/integrations/tekjuice/s2s/publish"
 SEO_PREFIX = "/api/integrations/tekjuice/seo"
 # UMET's own public pages, listed in the sitemap with the articles.
 SEO_STATIC_PATHS = ("/", "/features", "/pricing", "/about", "/resources")
-# App areas crawlers should not visit (robots.txt). "$" ends the match, so
-# an article slug such as /budgets-for-students stays crawlable.
-SEO_PRIVATE_PATHS = (
-    "/api/", "/dashboard$", "/expenses$", "/expenses/", "/income$", "/budgets$",
-    "/categories$", "/analytics$", "/profile$", "/login$", "/register$", "/forgot-password$",
-)
+# robots.txt: only the API is closed to crawlers. The app's private pages
+# (dashboard, budgets, login, ...) stay crawlable so search engines can read
+# the X-Robots-Tag: noindex that nginx sends for them (deploy/nginx-umet.conf);
+# a robots.txt block would keep an already indexed page (Google had indexed
+# /budgets) in the index without letting the crawler see the noindex.
+SEO_PRIVATE_PATHS = ("/api/",)
+# /resources (the article index) is served server-rendered with its own
+# canonical and a link to every article; the app renders the same page.
+SEO_HUB = {
+    "hub_path": "/resources",
+    "hub_title": "Insights for smarter personal finances",
+    "hub_description": ("Practical guides on tracking expenses, budgeting, monitoring income "
+                        "and planning your personal finances."),
+}
 SITE_DESCRIPTION = (
     "UMET is an expense tracker: log spending, set budgets and see where your money goes."
 )
@@ -368,6 +376,7 @@ def build_seo(settings, store: UMETContentStore, shell_html: Optional[Callable[[
         site_name="UMET",
         site_description=SITE_DESCRIPTION,
         private_paths=SEO_PRIVATE_PATHS,
+        **SEO_HUB,
     )
 
 

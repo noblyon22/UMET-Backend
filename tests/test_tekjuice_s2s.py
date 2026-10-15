@@ -321,8 +321,20 @@ def test_ai_outputs_name_the_canonical_url(client, shell):
     assert url in client.get(f"{SEO}/llms-full.txt").text
     assert client.get(f"{SEO}/feed.json").json()["items"][0]["url"] == url
     robots = client.get(f"{SEO}/robots.txt").text
-    assert "User-agent: GPTBot\nAllow: /" in robots and "Disallow: /dashboard$" in robots
+    assert "User-agent: GPTBot\nAllow: /" in robots and "Disallow: /api/" in robots
+    # Private app pages are crawlable so crawlers see nginx's X-Robots-Tag: noindex.
+    assert "/dashboard" not in robots and "/budgets" not in robots
     assert "Sitemap: https://ultimatemove.co.uk/sitemap.xml" in robots
+
+
+def test_resources_hub_is_server_rendered_with_links_to_every_article(client, shell):
+    _post(client, _payload(discovery=DISCOVERY))
+    hub = client.get(f"{SEO}/page/resources")
+    assert hub.status_code == 200
+    assert '<link rel="canonical" href="https://ultimatemove.co.uk/resources" />' in hub.text
+    assert hub.text.count('rel="canonical"') == 1
+    assert "<h1>Insights for smarter personal finances</h1>" in hub.text
+    assert '<a href="https://ultimatemove.co.uk/moving-cost-guide">' in hub.text
 
 
 def test_content_column_is_added_to_existing_databases():
