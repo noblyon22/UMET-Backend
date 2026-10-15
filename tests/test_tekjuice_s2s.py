@@ -391,3 +391,21 @@ def test_site_changes_override_a_umet_page_and_redirect(client, shell):
     undo = send({"type": "remove", "path": "/moving-cost-guide"}, "site-change-3")
     assert undo.json()["previous"]["redirect"]["target"] == "/features"
     assert client.get(f"{SEO}/page/moving-cost-guide", follow_redirects=False).status_code == 200
+
+
+def test_withdrawn_article_is_gone_everywhere_but_umet_pages_stay(client, shell):
+    _post(client, _payload(discovery=DISCOVERY))
+    _post(client, _payload(slug="second-guide", execution_id="exec-2", title="Second Guide"))
+    with SessionLocal() as db:
+        db.add(PublishedContent(page_slug="about", title="About UMET", body_content="<p>Us.</p>"))
+        page = db.query(PublishedContent).filter_by(page_slug="second-guide").first()
+        db.query(TekJuicePublication).filter_by(resource_id=page.id).update({"status": "withdrawn"})
+        db.commit()
+
+    assert client.get(f"{SEO}/page/second-guide").status_code == 404
+    assert client.get("/api/content/second-guide").status_code == 404
+    assert "second-guide" not in client.get(f"{SEO}/sitemap.xml").text
+    assert "second-guide" not in client.get(f"{SEO}/page/resources").text
+    listed = {c["page_slug"] for c in client.get("/api/content").json()}
+    assert listed == {"moving-cost-guide", "about"}
+    assert client.get("/api/content/about").status_code == 200

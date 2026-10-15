@@ -1,10 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import and_, exists, not_
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
 from app.models.content import PublishedContent
+from app.models.tekjuice_publication import TekJuicePublication
 
 router = APIRouter(prefix="/api/content", tags=["Published Content"])
+
+# A Tek Juice article whose publications are all withdrawn is no longer on the
+# site. Content Tek Juice never published (UMET's own pages) is unaffected.
+_withdrawn = and_(
+    exists().where(TekJuicePublication.resource_id == PublishedContent.id),
+    not_(exists().where(and_(TekJuicePublication.resource_id == PublishedContent.id,
+                             TekJuicePublication.status == "published"))),
+)
 
 @router.get("/{page_slug}")
 def get_published_content(
@@ -13,7 +23,7 @@ def get_published_content(
 ):
     content = (
         db.query(PublishedContent)
-        .filter(PublishedContent.page_slug == page_slug)
+        .filter(PublishedContent.page_slug == page_slug, not_(_withdrawn))
         .first()
     )
 
@@ -38,6 +48,7 @@ def list_published_content(
 ):
     contents = (
         db.query(PublishedContent)
+        .filter(not_(_withdrawn))
         .order_by(PublishedContent.published_at.desc())
         .all()
     )
