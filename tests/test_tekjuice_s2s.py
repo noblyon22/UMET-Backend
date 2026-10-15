@@ -195,7 +195,7 @@ def test_verify_is_a_dry_run(client):
     assert body["persisted"] is False
     assert body["capabilities"] == ["ai.entity", "ai.feed", "ai.indexnow", "ai.llms_txt", "ai.markdown", "ai.robots", "publish.create",
                                     "publish.discovery", "publish.update", "publish.verify",
-                                    "seo.prerender", "seo.sitemap", "site.changes"]
+                                    "seo.prerender", "seo.sitemap", "site.changes", "site.changes.sitemap"]
     assert body["would_publish_url"] == "https://ultimatemove.co.uk/tekjuice-verification-abc"
     assert _page("tekjuice-verification-abc") is None
     assert _ledger() == []
